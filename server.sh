@@ -7,14 +7,23 @@ for package in "${packages[@]}"; do
     apk info -e $package > /dev/null || { echo "downloading $package"; apk add $package; }
     done
 
-nc -lv 1234 &
-nc_pid=$!
-
-serverPort=$(ss -ltn | grep "LISTEN" | awk '{print $4}' | awk -F: '{print $2}')
-# echo "port: $serverPort"
 serverIP=$(ifconfig eth0 | grep "inet" | awk '{print $2}' | awk -F: '{print $2}')
 # echo "ip: $serverIP"
 # ifconfig eth
-echo "The server is running at Link addr:${serverIP}, port=${serverPort}"
 
-kill "$nc_pid"
+pkill nc
+first="true"
+
+while true; do
+    nc -lvn 1234 &
+    nc_pid=$!
+
+    if [[ "$first" == "true" ]]; then
+        serverPort=$(ss -ltn | grep "LISTEN" | awk '{print $4}' | awk -F: '{print $NF}')
+        # echo "port: $serverPort"
+        echo "The server is running at Link addr:${serverIP}, port=${serverPort}"
+        first="false"; fi
+    sleep 1
+    wait
+
+done
