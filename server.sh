@@ -1,8 +1,7 @@
 #!/bin/bash
 
 handle_assignemnt(){
-    local url=$1  #only in function
-    echo "assignment branch"
+    local url="https://www.sydney.edu.au/units/INFO1112/2026-S2C-ND-CC" #only in function
 
         # download unit page and checke error
         curl -fsSL "$url" -o /tmp/unit.html
@@ -43,6 +42,68 @@ handle_assignemnt(){
         cat /tmp/assignment.json
 }
 
+handle_population(){
+
+    # download population stat csv
+    local url="https://dbr.abs.gov.au/processedData/csv/STE_1.csv"
+    curl -fsSL "$url" -o /tmp/pop.csv
+
+    # error message if fail
+    if [[ $? -ne 0 ]]; then 
+            echo "Error: could not download the population stats page" >&2     # server screen
+            echo "Error: could not download the population stats page"         # client
+        return; fi
+
+
+    # extract population data and print latest
+    header=$(head -n 1 /tmp/pop.csv | tr -d '\r')
+    row=$(grep "^ERP_P_20," /tmp/pop.csv | head -n 1 | tr -d '\r')
+    printf '%s\n%s\n' "$header" "$row" | awk -F, '
+    NR==1 { for (i=4; i<=NF; i++) year[i]=$i; next }
+    {for (i=4; i<=NF; i++) if ($i !="") print year[i] "," $i}' > /tmp/pop_data.csv
+    latest=$(tail -n 1 /tmp/pop_data.csv)
+    echo "$latest" | awk -F, '{print "latest ("$1") NSW population is "$2}' >&2
+
+    # file emptiness check
+    if [[ ! -s /tmp/pop_data.csv ]]; then
+        echo "file is empty"
+        return; fi
+    
+    # plot and output population.png
+    cat > /tmp/plot.py << 'EOF'
+# AI acknowledgment: this plotting code was generated with Claude (Anthropic),
+# as permitted by the brief. Data is extracted with Bash in server.sh.
+import sys
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+years, pops = [], []
+with open(sys.argv[1]) as f:
+    for line in f:
+        y, p = line.strip().split(",")
+        years.append(int(y))
+        pops.append(int(p))
+
+plt.plot(years, pops, marker="o")
+plt.xlabel("Year")
+plt.ylabel("Population")
+plt.title("NSW Estimated Resident Population")
+plt.xticks(years)
+plt.tight_layout()
+plt.savefig(sys.argv[2])
+EOF
+
+    if ! python3 /tmp/plot.py /tmp/pop_data.csv /tmp/population.png; then
+        echo "Error: could not create population plot" >&2
+        echo "Error: could not create population plot"
+        return
+    fi
+
+    cat /tmp/population.png
+
+}
+
 # package installation handling
 declare -a packages
 packages=(netcat-openbsd iproute2 curl html2text python3 py3-matplotlib)
@@ -78,10 +139,10 @@ while true; do
 
         case "$request" in
             assignment)
-            handle_assignemnt "https://www.sydney.edu.au/units/INFO1112/2026-S2C-ND-CC"
+            handle_assignemnt
         ;;
             population)
-        echo "population branch (todo)"
+            handle_population
         ;;
             *)
         echo "Error: unknown request '$request'"
