@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# AI Acknowledgment: Debugging help and code structure developed with assistance 
+#                    from Claude (Anthropic); plotting code AI-generated as permitted.
+
 handle_assignemnt(){
     local url="https://www.sydney.edu.au/units/INFO1112/2026-S2C-ND-CC" #only in function
 
@@ -185,7 +188,7 @@ handle_poi(){
 
 # package installation handling
 declare -a packages
-packages=(netcat-openbsd iproute2 curl html2text python3 py3-matplotlib)
+packages=(netcat-openbsd iproute2 curl html2text python3 py3-matplotlib jq)
 for package in "${packages[@]}"; do
     apk info -e $package > /dev/null || { echo "downloading $package"; apk add $package; }
     done
