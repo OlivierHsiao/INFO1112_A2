@@ -104,6 +104,85 @@ EOF
 
 }
 
+
+handle_poi(){
+    POI_API="https://maps1.six.nsw.gov.au/arcgis/rest/services/public/NSW_POI/MapServer/0/query"
+    POI_RADIUS=500
+    local query="$1"
+    local lat lon name
+
+    if [[ "$query" =~ ^-?[0-9]+(\.[0-9]+)?,-?[0-9]+(\.[0-9]+)?$ ]]; then
+        # request is coordinates: "lat,lon"
+        lat=${query%,*}
+        lon=${query#*,}
+        name="$query"
+    else
+        # request is a name: look it up
+        name=$(echo "$query" | tr 'a-z' 'A-Z')     # dataset names are in capitals
+        local safe=${name//\'/\'\'}                 # escape ' for the SQL query (e.g. ST MARY'S)
+
+        # exact match first, then "contains"
+        for where in "poiname = '$safe'" "poiname LIKE '%$safe%'"; do  # 1. exact match 2. contain match
+            curl -fsS -G "$POI_API" \
+                --data-urlencode "where=$where" \
+                --data-urlencode "outFields=poiname,poitype" \
+                --data-urlencode "returnGeometry=true" \
+                --data-urlencode "outSR=4326" \
+                --data-urlencode "f=json" -o /tmp/poi_lookup.json || break
+            [[ $(jq '.features | length' /tmp/poi_lookup.json 2>/dev/null) -gt 0 ]] && break # if find something, break
+        done
+
+        # there is no match, return and print not found message
+        if [[ $(jq '.features | length' /tmp/poi_lookup.json 2>/dev/null) -eq 0 ]] 2>/dev/null; then
+            echo "Error: POI '$query' not found" >&2
+            echo "Error: POI '$query' not found"
+            return
+        fi
+
+        # extract name and position from the first match
+        name=$(jq -r '.features[0].attributes.poiname' /tmp/poi_lookup.json)
+        lat=$(jq -r '.features[0].geometry.y' /tmp/poi_lookup.json)
+        lon=$(jq -r '.features[0].geometry.x' /tmp/poi_lookup.json)
+    fi
+
+    echo "POI: $name at ($lat, $lon), searching within ${POI_RADIUS} m" >&2
+
+    # find neighbours
+    if ! curl -fsS -G "$POI_API" \
+        --data-urlencode "geometry=$lon,$lat" \
+        --data-urlencode "geometryType=esriGeometryPoint" \
+        --data-urlencode "inSR=4326" \
+        --data-urlencode "distance=$POI_RADIUS" \
+        --data-urlencode "units=esriSRUnit_Meter" \
+        --data-urlencode "outFields=poiname,poitype" \
+        --data-urlencode "returnGeometry=true" \
+        --data-urlencode "outSR=4326" \
+        --data-urlencode "f=json" -o /tmp/poi_near.json; then
+        echo "Error: could not reach the NSW POI service" >&2
+        echo "Error: could not reach the NSW POI service"
+        return
+    fi
+
+    # build the result JSON (leave out the POI itself)
+    if ! jq --arg q "$name" --argjson r "$POI_RADIUS" '
+        {query: $q, radius_m: $r,
+         neighbours: [.features[]
+                      | select(.attributes.poiname != $q)
+                      | {name: .attributes.poiname,
+                         type: .attributes.poitype,
+                         latitude: .geometry.y,
+                         longitude: .geometry.x}]
+                    | unique_by(.name)}
+        | .count = (.neighbours | length)' /tmp/poi_near.json > /tmp/poi.json; then
+        echo "Error: unexpected reply from the NSW POI service" >&2
+        echo "Error: unexpected reply from the NSW POI service"
+        return
+    fi
+
+    echo "Found $(jq '.count' /tmp/poi.json) neighbouring POIs" >&2
+    cat /tmp/poi.json
+}
+
 # package installation handling
 declare -a packages
 packages=(netcat-openbsd iproute2 curl html2text python3 py3-matplotlib)
@@ -145,7 +224,7 @@ while true; do
             handle_population
         ;;
             *)
-        echo "Error: unknown request '$request'"
+            handle_poi "$request"
         ;;
         esac
     } > /tmp/reply &

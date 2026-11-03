@@ -14,4 +14,22 @@ case $request in
     *) outfile=poi.json ;;
 esac
     
-(echo "$request"; sleep 1) | nc -w 5 "$ip_add" "$port_add" > "$outfile"
+tmpfile="$outfile.tmp"
+(echo "$request"; sleep 5) | nc -w 20 "$ip_add" "$port_add" > "$tmpfile"
+
+# nothing came back: server not running or unreachable
+if [[ ! -s "$tmpfile" ]]; then
+    echo "Error: no reply from server (is it running at $ip_add:$port_add?)"
+    rm -f "$tmpfile"
+    exit 1
+fi
+
+# server sent an error message instead of a file
+if head -c 6 "$tmpfile" | grep -q "^Error"; then
+    cat "$tmpfile"
+    rm -f "$tmpfile"
+    exit 1
+fi
+
+mv "$tmpfile" "$outfile"
+echo "Saved reply to $outfile"
